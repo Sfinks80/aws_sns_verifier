@@ -11,8 +11,10 @@ import (
 	"errors"
 	"fmt"
 	"io/ioutil"
+	"log"
 	"net/http"
 	"net/url"
+	"os"
 	"reflect"
 )
 
@@ -29,9 +31,14 @@ type Notification struct {
 	UnsubscribeURL   string
 }
 
+var debug = os.Getenv("SNS_VERIFIER_DEBUG") == "true"
+
 func (sns *Notification) VerifySignature(awsRegion string) (bool, error) {
 	if sns.SignatureVersion != "1" {
 		return false, errors.New(fmt.Sprint("unknown signature version"))
+	}
+	if debug {
+		log.Printf("SignatureVersion: %s", sns.SignatureVersion)
 	}
 
 	if ok, err := sns.verifyCertURL(awsRegion); !ok || err != nil {
@@ -51,10 +58,17 @@ func (sns *Notification) VerifySignature(awsRegion string) (bool, error) {
 			buffer.WriteString(keyString + "\n")
 		}
 	}
+	if debug {
+		log.Printf("signatureString: %s", buffer.String())
+	}
 
 	var base64DecodedSignature []byte
 	if base64DecodedSignature, err = base64.StdEncoding.DecodeString(sns.Signature); err != nil {
 		return false, errors.New(fmt.Sprintf("base64 decoding error: %v", err))
+	}
+	if debug {
+		log.Printf("EncoodedSignature: %s", sns.Signature)
+		log.Printf("DecoodedSignature: %s", string(base64DecodedSignature))
 	}
 
 	var resp *http.Response
@@ -67,12 +81,21 @@ func (sns *Notification) VerifySignature(awsRegion string) (bool, error) {
 	if body, err = ioutil.ReadAll(resp.Body); err != nil {
 		return false, errors.New(fmt.Sprintf("error reading certificate body: %v", err))
 	}
+	if debug {
+		log.Printf("Certificate: %s", string(body))
+	}
 
 	p, _ := pem.Decode(body)
+	if debug {
+		log.Printf("PEM Decoded Certificate: %+v", p)
+	}
 
 	var cert *x509.Certificate
 	if cert, err = x509.ParseCertificate(p.Bytes); err != nil {
 		return false, errors.New(fmt.Sprintf("error parsing certificate: %v", err))
+	}
+	if debug {
+		log.Printf("Parsed Certificate: %+v", p)
 	}
 
 	if err = cert.CheckSignature(x509.SHA1WithRSA, buffer.Bytes(), base64DecodedSignature); err != nil {
@@ -96,6 +119,10 @@ func (sns *Notification) VerifySignature(awsRegion string) (bool, error) {
 }
 
 func (sns *Notification) verifyCertURL(awsRegion string) (bool, error) {
+	if debug {
+		log.Printf("SigningCertURL: %s", sns.SigningCertURL)
+	}
+
 	var (
 		err error
 		u   *url.URL
