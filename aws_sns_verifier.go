@@ -20,18 +20,30 @@ import (
 
 type Notification struct {
 	Type             string
-	MessageId        string
-	TopicArn         string
 	Subject          string
 	Message          string
-	Timestamp        string
-	SignatureVersion string
+	MessageId        string
 	Signature        string
+	SignatureVersion string
 	SigningCertURL   string
+	SubscribeURL     string
 	UnsubscribeURL   string
+	TopicArn         string
+	Token            string
+	Timestamp        string
 }
 
 var debug = os.Getenv("SNS_VERIFIER_DEBUG") == "true"
+var keysOfSignature = map[string][]string{
+	"Notification":             {"Message", "MessageId", "Subject", "Timestamp", "TopicArn", "Type"},
+	"SubscriptionConfirmation": {"Message", "MessageId", "SubscribeURL", "Timestamp", "Token", "TopicArn", "Type"},
+	"UnsubscribeConfirmation":  {"Message", "MessageId", "SubscribeURL", "Timestamp", "Token", "TopicArn", "Type"},
+}
+
+func IsValidType(t string) bool {
+	_, exist := keysOfSignature[t]
+	return exist
+}
 
 func (sns *Notification) VerifySignature(awsRegion string) (bool, error) {
 	if sns.SignatureVersion != "1" {
@@ -48,7 +60,7 @@ func (sns *Notification) VerifySignature(awsRegion string) (bool, error) {
 	var err error
 
 	var buffer bytes.Buffer
-	signatureKeys := []string{"Message", "MessageId", "Subject", "Timestamp", "TopicArn", "Type"}
+	signatureKeys := keysOfSignature[sns.Type]
 	for _, key := range signatureKeys {
 		r := reflect.ValueOf(sns)
 		f := reflect.Indirect(r).FieldByName(key)
@@ -59,7 +71,7 @@ func (sns *Notification) VerifySignature(awsRegion string) (bool, error) {
 		}
 	}
 	if debug {
-		log.Printf("signatureString: %s", buffer.String())
+		log.Printf("SignatureString: %s", buffer.String())
 	}
 
 	var base64DecodedSignature []byte
@@ -95,7 +107,7 @@ func (sns *Notification) VerifySignature(awsRegion string) (bool, error) {
 		return false, errors.New(fmt.Sprintf("error parsing certificate: %v", err))
 	}
 	if debug {
-		log.Printf("Parsed Certificate: %+v", p)
+		log.Printf("Parsed Certificate: %+v", cert)
 	}
 
 	if err = cert.CheckSignature(x509.SHA1WithRSA, buffer.Bytes(), base64DecodedSignature); err != nil {
